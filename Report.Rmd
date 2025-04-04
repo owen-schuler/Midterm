@@ -108,24 +108,10 @@ make_or_miss <- function(shots) {
     shape = guide_legend(title = NULL)) #+ #drops titles from legend
     #ease_aes('linear') #constant animation
 }
-#make <- make_or_miss(nug_shots)
-#make
+make <- animate(make_or_miss(nug_shots), fps = 1, duration = 20, width = 500, height = 600, renderer = gifski_renderer())
+make
 ```
 
-
-
-```{r,include=FALSE}
-#make_gif <- animate(make_or_miss(nug_shots), 
-                    #fps = 1, 
-                    #nframes = 20, 
-                    #width = 500, 
-                    #height = 600, 
-                    #renderer = gifski_renderer('make.gif')
-                    #) #creates gif object by animating the function created beforehand
-#make_gif
-#make_or_miss(nug_shots)
-#fg_zones(nug_shots)
-```
 
 
 # Analysis

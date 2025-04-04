@@ -1,0 +1,139 @@
+---
+title: "The Rise of the Three Point Shot"
+font: 12pt
+author: "Owen Schuler"
+date: "2025-04-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r, include=FALSE}
+Sys.setenv("VROOM_CONNECTION_SIZE" = 500000)
+library(tidyverse)
+library(ggplot2)
+library(nbastatR)
+library(png)
+library(gganimate)
+library(jpeg)
+```
+
+```{r, include=FALSE} 
+yearkey <-c(seq(2005,2024,1)) #Creates year vector
+nug_shots <- data.frame() #Initializes data frame
+
+for (i in yearkey) {
+  nug1 <- teams_shots(teams = "Denver Nuggets", seasons = i) #loops through all years
+  if (nrow(nug1) > 0) { #Confirms data is present
+    nug2 <- nug1 %>% 
+      filter(isShotAttempted == TRUE) %>% #filters out unattempted shots
+      select(yearSeason, slugSeason, typeEvent, typeAction, typeShot, zoneBasic, zoneRange, nameZone, slugZone, locationX, locationY, distanceShot) #selects necessary variables
+    nug_shots <- bind_rows(nug_shots, nug2)  #stores in DF
+  }
+}
+```
+
+```{r,warning=FALSE}
+fg_zones <- function(shots) { #creates function with shots parameter expecting shot data with locationX and Y variables
+  court_img <- readPNG("Nug Court2.png")  # Reads in picture of court
+  
+  shots$is_make <- ifelse(shots$typeEvent == "Made Shot", 1, 0)  #creates a new column with a binary variable to indicate makes and misses
+  make_percentage <- shots %>% #creates a new table with fg% by zone
+    group_by(nameZone, yearSeason) %>% #groups by zone and by year (year for animation)
+    summarise(make_pct = mean(is_make), .groups = "drop")  #takes average of binary column which is equal to the percentage of makes
+  
+  shots <- shots %>% #joins the fg% table by zone and year and removes NAs
+    left_join(make_percentage, by = c("nameZone", "yearSeason")) %>% 
+    na.omit() 
+  
+  y_out <- 855 #sets dimensions for court
+  y_in <- -35
+  x_out <- 255
+  x_in <- -x_out #ensures symmetry
+  
+  ggplot(shots, aes(x = locationX, y = locationY)) + #uses shot data passed into the function with location data
+    geom_point(aes(color = make_pct), alpha = 0.3, size = 3) + #makes the shots appear as points with size 3 and .3 opacity
+    scale_color_gradient(low = "red", high = "green", limits = c(0,.6) ,labels= scales::percent_format(accuracy = 1)) + #creates a gradient color scale for shooting zones to indicate fg% as a continuous variable. capped at .6 so that differences between percentages are more pronounced.
+    annotation_raster(court_img, xmin = x_in - 5, xmax = x_out + 5, ymin = y_in - 5, ymax = y_out + 15) + #stretches image to align with where 3pt vs 2pt shots as well as the basket are in the data.
+    theme_void() +
+    scale_x_continuous(limits = c(x_in, x_out)) + #sets limits for the court
+    scale_y_continuous(limits = c(y_in, y_out)) +
+    theme(aspect.ratio = (y_out - y_in) / (x_out - x_in)) + #ensures consistent ratio/scale
+    labs(color = "Field Goal %", title = "Denver Nuggets Shots Hot Zones since 2005", subtitle ="{closest_state} Season")+ #labels + dynamic label for flipping through seasons
+    transition_states(yearSeason, transition_length = 0, state_length = 1)+ 
+    ease_aes('linear') #ensures constant speed for animation
+}
+#nug_shots_2023 <- nug_shots %>% filter(yearSeason == 2023) REMOVE
+fg_gif <- animate(fg_zones(nug_shots), 
+                fps = 1, 
+                  nframes =  20, 
+                width = 500, 
+                height = 600, 
+                  renderer = gifski_renderer()
+                  ) #creates gif object by animating the function created beforehand
+fg_gif
+```
+
+
+
+
+```{r,include=FALSE}
+make_or_miss <- function(shots) {
+  court_img <- readPNG("Nug Court2.png")  # Reads in picture of court
+  
+  shots$is_make <- ifelse(shots$typeEvent == "Made Shot", 1, 0)  #creates a new column with a binary variable to indicate makes and misses
+ 
+  y_out <- 855
+  y_in <- -35
+  x_out <- 255
+  x_in <- -x_out #sets dimensions for court
+  
+  ggplot(shots, aes(x = locationX, y = locationY)) + #uses shot data passed into the function with location data
+    geom_point(aes(color = factor(is_make, levels = c(0,1), labels = c("Miss", "Make")), #correctly labels misses and makes
+    shape = factor(is_make, levels = c(0,1), labels = c("Miss", "Make"))), #makes color and shape dependent on shot type
+               alpha = 0.5, size = 2) + 
+    scale_color_manual(values = c("Miss" = "#FEC524", "Make" = "#1D428A"))+
+    scale_shape_manual(values = c("Miss" = 4, "Make" = 16))+  # Circles for makes, X's for misses
+    annotation_raster(court_img, xmin = x_in - 5, xmax = x_out + 5, ymin = y_in - 5, ymax = y_out + 15) + #stretches image to align with where 3pt vs 2pt shots as well as the basket are in the data.
+    theme_void() +
+    scale_x_continuous(limits = c(x_in, x_out)) + #sets limits for the court
+    scale_y_continuous(limits = c(y_in, y_out)) +
+    theme(aspect.ratio = (y_out - y_in) / (x_out - x_in)) + #ensures consistent ratio/scale
+    labs(color = NULL, title = "Denver Nuggets Shot Chart since 2005", subtitle = "{closest_state} Season") + #labels
+    #transition_states(yearSeason, transition_length = 0, state_length = 1) +#separates transitions
+    guides(
+    color = guide_legend(title = NULL), 
+    shape = guide_legend(title = NULL)) #+ #drops titles from legend
+    #ease_aes('linear') #constant animation
+}
+#make <- make_or_miss(nug_shots)
+#make
+```
+
+
+
+```{r,include=FALSE}
+#make_gif <- animate(make_or_miss(nug_shots), 
+                    #fps = 1, 
+                    #nframes = 20, 
+                    #width = 500, 
+                    #height = 600, 
+                    #renderer = gifski_renderer('make.gif')
+                    #) #creates gif object by animating the function created beforehand
+#make_gif
+#make_or_miss(nug_shots)
+#fg_zones(nug_shots)
+```
+
+
+# Analysis
+- Since 2005, the Nuggets' shot selection has evolved to favor more 3 pointers and less mid range shots.
+- As seen in the shot chart, as time passes, points become denser around the arc and inside the arc becomes sparse.
+- The hot zones have also evolved, with above the break threes hitting at around 38% compared to around 33% in the earlier years.
+- Further, of shots inside the arc, they have become concentrated within the key and also hitting at higher rates.
+
+# In Depth
+When looking at 3 pointers compared to mid range shots year over year, the ratio of 3 pointers to mid range shots has increased dramatically. In 2005, there was only one 3 pointer taken for every four mid range shots. This ratio jumped one 3 for every two mid range in 2007 and has steadily increased until 2018. From 2018 to 2024, the ratio has completely flipped with about two 3s being taken for every one mid range in each of the past 6 seasons. Further the proportion of shots taken from behind the 3 point line and in the paint have increased from 14% to 35% and 48% to 51% respectively while the proportion fo shots at mid range decreased from 38% to 14%. This shows how in this time, 3 point shooting has replaced the mid range shot. With the new prominence in 3 point shooting, above the break 3s have hit at 37-38% in recent years while only 33% in the 2000s. The data for left and right corner 3s is very noisy with much of the changes attributable to variance. Finally, shots in the paint have seen close to a 13 percentage point increase in field goal percentage since 2005 from ~36% to ~49%. Paint shots within the restricted area have gone in at around 67% on average over the past 5 years while only around 62% in the first 5 years. This could be attributable to the recent success of Nikola Jokic.
+

@@ -1,0 +1,166 @@
+---
+title: "STAT 345 Midterm Project"
+font: 12pt
+date: "Due April 4"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+> "Our offense is like the Pythagorean Theorem. There is no answer!", _Shaquille O'Neal_
+
+## The Background
+
+Your role for the midterm project is that of data analyst intern at an NBA (professional basketball) team. Your direct supervisor (also part of the analytics team) has asked you to create a data visualization to illustrate how (or if) the team's shots have changed over time. After some initial clarifying questions, your supervisor confessed that they had seen some pretty cool shot charts at http://savvastjortjoglou.com/nba-shot-sharts.html and would like to extend the ideas a bit. 
+
+Your data for the midterm project may come from a variety of sources, including the NBA directly, as well as Basketball-Reference, HoopsHype, and others. There are several ways to access the data, but perhaps the simplest is through the `nbastatR` package, which serves as a wrapper (or set of helper functions) for these various data sources. There is a lot of potentially useful information that can be found using this package; unfortunately, the documentation is somewhat inconsistent. For example, the documentation at https://www.rdocumentation.org/packages/nbastatR/versions/0.1.110202031 is pretty well-formatted and easy to navigate, but the current function names have changed a bit (see `?nbastatR` and click "Index"). (If you use the nbastatR package, you'll want to install the package using the following code. There are other packages with this type of data, though.) You are welcome to scrape other websites or use other packages if you choose.
+
+```{r}
+Sys.setenv("VROOM_CONNECTION_SIZE" = 500000)
+library(tidyverse)
+library(ggplot2)
+library(nbastatR)
+library(ggimage)
+library(png)
+library(gganimate)
+```
+
+## The Tasks
+
+1. (30 points) Produce a graphic displaying the shot locations for a particular team over several years. Some notes:
+
+   - Colors should be chosen to reflect the team, if possible.
+   - There are likely many overlaid points -- handle this by either binning these by location, or use opacity.
+   - Incorporate information about whether the shot was made or not (shape, color, etc.).
+   - The graphic should be well-labeled, titled, etc.
+   - Start with a graph for a single year, then extend to several years. Up to 20 years of shot data is available. Either facet these by year or animate using the years.
+   - You'll want to figure out what the coordinates mean somehow. This might be through the documentation, but could also be determined using aspects of the data itself and the dimensions of an NBA court.
+    - Put a basketball court on the background of the image (you'll need to scale it appropriately).
+
+```{r} 
+yearkey <-c(seq(2005,2024,1)) #Creates year vector
+nug_shots <- data.frame() #Initializes data frame
+
+for (i in yearkey) {
+  nug1 <- teams_shots(teams = "Denver Nuggets", seasons = i) #loops through all years
+  if (nrow(nug1) > 0) { #Confirms data 
+    nug2 <- nug1 %>% 
+      filter(isShotAttempted == TRUE) %>% #filters out unattempted shots
+      select(yearSeason, slugSeason, typeEvent, typeAction, typeShot, zoneBasic, zoneRange, nameZone, slugZone, locationX, locationY, distanceShot) #selects necessary variables
+    nug_shots <- bind_rows(nug_shots, nug2)  #stores in DF
+  }
+}
+```
+
+```{r}
+fg_zones <- function(shots) { #creates function with shots parameter expecting shot data with locationX and Y variables
+  court_img <- readPNG("Nug Court2.png")  # Reads in picture of court
+  
+  shots$is_make <- ifelse(shots$typeEvent == "Made Shot", 1, 0)  #creates a new column with a binary variable to indicate makes and misses
+  make_percentage <- shots %>% #creates a new table with fg% by zone
+    group_by(nameZone, yearSeason) %>% #groups by zone and by year (year for animation)
+    summarise(make_pct = mean(is_make))  #takes average of binary column which is equal to the percentage of makes
+  
+  shots <- shots %>% #joins the fg% table by zone and year and removes NAs
+    left_join(make_percentage, by = c("nameZone", "yearSeason")) %>% 
+    na.omit() 
+  
+  y_out <- 855 #sets dimensions for court
+  y_in <- -35
+  x_out <- 255
+  x_in <- -x_out #ensures symmetry
+  
+  ggplot(shots, aes(x = locationX, y = locationY)) + #uses shot data passed into the function with location data
+    geom_point(aes(color = make_pct), alpha = 0.3, size = 3) + #makes the shots appear as points with size 3 and .3 opacity
+    scale_color_gradient(low = "red", high = "green", limits = c(0,.6) ,labels= scales::percent_format(accuracy = 1)) + #creates a gradient color scale for shooting zones to indicate fg% as a continuous variable. capped at .6 so that differences between percentages are more pronounced.
+    annotation_raster(court_img, xmin = x_in - 5, xmax = x_out + 5, ymin = y_in - 5, ymax = y_out + 15) + #stretches image to align with where 3pt vs 2pt shots as well as the basket are in the data.
+    theme_void() +
+    scale_x_continuous(limits = c(x_in, x_out)) + #sets limits for the court
+    scale_y_continuous(limits = c(y_in, y_out)) +
+    theme(aspect.ratio = (y_out - y_in) / (x_out - x_in)) + #ensures consistent ratio/scale
+    labs(color = "Field Goal %", title = "Denver Nuggets Shots Hot Zones since 2005", subtitle ="{closest_state} Season")+ #labels + dynamic label for flipping through seasons
+    transition_states(yearSeason, transition_length = 0, state_length = 1) + #sets transition to 0 and shows each state for 1
+    ease_aes('linear') #ensures constant speed for animation
+}
+
+fg_zone_gif <- animate(fg_zones(nug_shots), fps = 1, duration = 20, width = 500, height = 600, renderer = gifski_renderer('fg.gif')) #creates gif object by animating the function created beforehand
+fg_zone_gif
+```
+
+
+```{r}
+make_or_miss <- function(shots) {
+  court_img <- readPNG("Nug Court2.png")  # Reads in picture of court
+  
+  shots$is_make <- ifelse(shots$typeEvent == "Made Shot", 1, 0)  #creates a new column with a binary variable to indicate makes and misses
+ 
+  y_out <- 855
+  y_in <- -35
+  x_out <- 255
+  x_in <- -x_out #sets dimensions for court
+  
+  ggplot(shots, aes(x = locationX, y = locationY)) + #uses shot data passed into the function with location data
+    geom_point(aes(color = factor(is_make, levels = c(0,1), labels = c("Miss", "Make")), #correctly labels misses and makes
+    shape = factor(is_make, levels = c(0,1), labels = c("Miss", "Make"))), #makes color and shape dependent on shot type
+               alpha = 0.5, size = 2) + 
+    scale_color_manual(values = c("Miss" = "#FEC524", "Make" = "#1D428A"))+
+    scale_shape_manual(values = c("Miss" = 4, "Make" = 16))+  # Circles for makes, X's for misses
+    annotation_raster(court_img, xmin = x_in - 5, xmax = x_out + 5, ymin = y_in - 5, ymax = y_out + 15) + #stretches image to align with where 3pt vs 2pt shots as well as the basket are in the data.
+    theme_void() +
+    scale_x_continuous(limits = c(x_in, x_out)) + #sets limits for the court
+    scale_y_continuous(limits = c(y_in, y_out)) +
+    theme(aspect.ratio = (y_out - y_in) / (x_out - x_in)) + #ensures consistent ratio/scale
+    labs(color = NULL, title = "Denver Nuggets Shot Chart since 2005", subtitle = "{closest_state} Season") + #labels
+    transition_states(yearSeason, transition_length = 0, state_length = 1) +#separates transitions
+    guides(
+    color = guide_legend(title = NULL), 
+    shape = guide_legend(title = NULL)) + #drops titles from legend
+    ease_aes('linear') #constant animation
+}
+
+make_gif <- animate(make_or_miss(nug_shots), fps = 1, duration = 20, width = 500, height = 600, renderer = gifski_renderer()) #creates gif object by animating the function created beforehand
+make_gif
+
+
+```
+
+
+2. (30 points) Summarize the graphic/series of graphics into a digestible, bullet-point brief report for front-office staff. Some notes:
+
+   - The main body of the report should be very brief -- just the graphic(s) and the bullet-pointed list of findings, which should be short and clear.
+   - Include a more detailed explanation of these bullet points, for further reading by those interested. This section should follow the bullet-point section, but should be organized similarly for reference. 
+   - Your report to the front-office shouldn't include any code.
+   - This report should be generated using RMarkdown. However, the choice of output type (Word, PDF, or HTML) is up to you (you could even make slides if you want to). 
+   
+3. (30 points) Write and document clean, efficient, reproducible code. Some notes:
+
+   - This code will be viewed by your direct supervisor.
+   - The code file should include your code to gather, join, and clean the data; the code to generate the graphic(s) presented; and your commentary on the results (so, a single .rmd file, or an .rmd file that sources an .r file).
+   - Your code should be clean, organized, and reproducible. Remove unnecessary/scratch/exploratory code.
+   - Your code should be well commented. In particular, any decisions or judgement calls made in the analysis process should be explained/justified. Sections of code should be identified even if not functionalized (including purpose, data/argument inputs, analysis outputs).
+
+4. (10 points) Above and Beyond. Choose either option below. You are welcome to explore both, but only one is required. 
+
+  - Option 1: Explore the data a bit, and create a graphic that uses (or incorporates) different information than what was used above. Some notes:
+    - Create an additional graphic that incorporates at least one additional variable not previously used (this should add to the graphic in part 1). The additional data should be drawn from a different dataset (function call) than the original graphic used. These two (or more) datasets may need to be joined appropriately.
+    - You can either add more information to the plot above, or create a different plot. 
+     - Formatting, labelling, etc. are all important here too.
+    - Adding marginal densities or other "bells and whistles" might offer additional insight.
+    - This graphic should be included at the end of the report (after the more detailed explanations). 
+     - You should include a brief description of the graphic (highlighting the different/additional information used).
+  - Option 2: If the NBA were to incorporate a 4-point shot, where would you draw a 4-point arc? Some notes:
+    - You likely should base your decision at least partly on proportion of shots made from a given range. You might consider an expected value calculation here.
+    - Your arc can be shaped as you see fit; simple arcs are sufficient for this exploration.
+    - Provide an example of a consequence (positive or negative) if a 4-point shot was incorporated. (e.g., "my_favorite_player's season point total would increase by x%")
+    - You do not need to create a plot representing your arc, though you are welcome to do so!
+    
+
+I would draw a 4pt line as an arc 27 feet from the hoop. From my data set I calculated that the expected value of a 3pt shot was 1.08 and the expected value of a 2pt shot is 1.02. My data has shots from 27 feet hitting at a 27% rate which puts the expected value of a 4pt shot right in line with the 3pt shot. With a 4pt line at 27 feet, the Nuggets would've made 873 4pt shots over the course of the last 20 years. This averages to about 44 per season as well as an extra 44 points per season. It would be cool to see what would happen to the game if the expected value was the same as a 3pt shot.
+
+  
+## The Deliverables
+
+1. Upload your report and code file(s) to GitHub by 11:00am on Friday, April 4.
+2. Submit (on Canvas) your report, code, and link to your GitHub repository by 11:00am on Friday, April 4.
+  
